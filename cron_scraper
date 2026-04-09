@@ -1,0 +1,68 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/functions.php';
+require_once __DIR__ . '/includes/scraper_engine.php';
+
+$db = db();
+
+$clubId = isset($_GET['club_id']) ? (int)$_GET['club_id'] : 0;
+
+if ($clubId > 0) {
+    $stmt = $db->prepare("SELECT * FROM clubs WHERE id = ? AND is_active = 1");
+    $stmt->bind_param('i', $clubId);
+    $stmt->execute();
+    $clubs = $stmt->get_result();
+} else {
+    $clubs = $db->query("SELECT * FROM clubs WHERE is_active = 1 ORDER BY club_name ASC");
+}
+
+header('Content-Type: text/plain; charset=UTF-8');
+
+echo "=== INICIO SCRAPING ===\n";
+echo "Fecha: " . date('d/m/Y H:i:s') . "\n\n";
+
+$totalClubs = 0;
+$totalProducts = 0;
+$totalCreated = 0;
+$totalUpdated = 0;
+
+try {
+    while ($club = $clubs->fetch_assoc()) {
+        $totalClubs++;
+
+        echo "Club: " . $club['club_name'] . "\n";
+        echo "URL: " . $club['store_url'] . "\n";
+
+        try {
+            $items = scrape_club($club);
+            $saved = save_scraped_products((int)$club['id'], $items);
+
+            $totalProducts += (int)$saved['total'];
+            $totalCreated += (int)$saved['created'];
+            $totalUpdated += (int)$saved['updated'];
+
+            echo "Estado: OK\n";
+            echo "Procesadas: " . (int)$saved['total'] . "\n";
+            echo "Nuevas: " . (int)$saved['created'] . "\n";
+            echo "Actualizadas: " . (int)$saved['updated'] . "\n";
+        } catch (Throwable $e) {
+            echo "Estado: ERROR\n";
+            echo "Detalle: " . $e->getMessage() . "\n";
+        }
+
+        echo "-----------------------------\n";
+    }
+
+    echo "\n=== RESUMEN ===\n";
+    echo "Clubes procesados: " . $totalClubs . "\n";
+    echo "Productos procesados: " . $totalProducts . "\n";
+    echo "Productos nuevos: " . $totalCreated . "\n";
+    echo "Productos actualizados: " . $totalUpdated . "\n";
+    echo "Fin: " . date('d/m/Y H:i:s') . "\n";
+} catch (Throwable $e) {
+    echo "\n=== ERROR GENERAL ===\n";
+    echo $e->getMessage() . "\n";
+}
